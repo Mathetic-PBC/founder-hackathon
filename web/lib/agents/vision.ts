@@ -63,15 +63,15 @@ export async function readMarks(openai: OpenAI, image: Capture, { fullText = fal
     [
       "This is a photo of a book page the reader marked by hand.",
       fullText
-        ? "Transcribe all of the printed text exactly, in reading order, with a blank line between paragraphs; leave out running headers and the page number."
+        ? "Transcribe all of the printed text exactly, in reading order, with a blank line between paragraphs; leave running headers and the page number out of the text."
         : "Set text to null.",
       "List every mark the reader made. For each: its color (red for red or pink ink; dark for black, blue or pencil; highlighter for translucent highlighter of any color), its shape (underline; box for a box or circle drawn around text; highlight; margin_note for handwritten words; other), the exact printed text it covers (for a margin note, the handwriting as written), the printed sentence it sits in, and any handwritten comment attached to it.",
-      "Also give the printed page number if visible.",
+      "Finally, the page number: the small number printed in a top or bottom corner or centered in the top or bottom margin. Not a chapter or section number, and not a number inside the text. If the open book shows two pages, give the number of the page the marks are on. If no page number is printed in the photo (for example the margin is cut off), use null; never guess.",
     ].join(" "),
     {
       type: "object",
       properties: {
-        page: nullable("integer", "Printed page number, or null if not visible"),
+        page: nullable("integer", "The printed page number from the page's corner or margin, or null if it isn't in the photo"),
         text: nullable("string", "All printed text on the page, exactly; null if not asked for or not legible"),
         marks: {
           type: "array",

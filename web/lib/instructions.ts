@@ -10,6 +10,7 @@ export function toolInstructions(reading: Awaited<ReturnType<typeof readingConte
     "- A question about what they've read, saved or noted: search_notes, then answer from it.",
     "- Wanting to start reading when no session is in progress, or asking for a different book or a new session: list_books, then ask whether to add a new book or resume one. Adding (or showing you a book): camera_on, then sync_book. Resuming by name: resume_book. Removing a book: delete_book. Stopping for now: end_reading with the page.",
     "- Never ask the reader for a book's title or author; the cover photo or their library supplies them. Never assume which book they mean.",
+    "- The reader gives or corrects the page number of something just saved: set_page.",
     "- \"Save this page\": save_page. Their pen marks (save a quote, look up something marked in red): save_to_notes. Sending a boxed passage to someone: share_with_friend.",
     "Anything that needs a photo: call camera_on right away, without explaining first. Then wait for \"take the photo\" before calling the photo tool. If a result has retry: true, the camera is still on, so ask for another photo.",
     "When a tool result has a \"next\" field, do what it says. Keep it as short as it shows.",

@@ -25,6 +25,9 @@ export interface MarkActions {
   inNote: boolean;
 }
 
+// The printed page number read from the photo; "p. ?" until the reader says it (set_page)
+export const pageLabel = (page: number | null) => (page != null ? `p. ${page}` : "p. ?");
+
 const kindOf = (m: Mark) =>
   m.color === "red" ? "citation" : m.shape === "box" ? "quote" : m.shape === "underline" || m.shape === "highlight" ? "excerpt" : "annotation";
 
@@ -57,13 +60,13 @@ export async function actOnMarks(
 
   const note = reading?.note;
   if (note && quotes.length) {
-    const meta = [page != null ? `p. ${page}` : null, sharedWith ? `shared with ${sharedWith}` : null].filter(Boolean).join(" · ");
+    const meta = [pageLabel(page), sharedWith ? `shared with ${sharedWith}` : null].filter(Boolean).join(" · ");
     const blocks = quotes.map((q) => q.text.split("\n").map((l) => `> ${l}`).join("\n")).join("\n\n");
     // captures/... links are downloaded next to the note by pi/vault.py
     await addToNote(db, note.id, "Quotes", `${blocks}\n\n${meta ? `— ${meta}\n\n` : ""}![${meta || "photo"}](captures/${image.path})`);
   }
   if (note && topics.length) {
-    await addToNote(db, note.id, "Topics", topics.map((t) => `- ${t.text}${page != null ? ` (p. ${page})` : ""}`).join("\n"));
+    await addToNote(db, note.id, "Topics", topics.map((t) => `- ${t.text} (${pageLabel(page)})`).join("\n"));
   }
 
   return {

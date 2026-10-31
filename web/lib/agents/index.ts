@@ -1,6 +1,6 @@
 import type { Agent } from "./types";
 import { confirmDeleteBook, deleteBook, endReading, listBooks, resumeBook, startReading, syncBook } from "./reading";
-import { savePage, saveToNotes, shareWithFriend } from "./quotes";
+import { savePage, saveToNotes, setPage, shareWithFriend } from "./quotes";
 import { searchNotes, searchWeb } from "./search";
 import { research } from "./marks";
 
@@ -70,6 +70,7 @@ const tools: Agent[] = [
   confirmDeleteBook,
   saveToNotes,
   shareWithFriend,
+  setPage,
   searchNotes,
   searchWeb,
   {
