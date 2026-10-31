@@ -1,7 +1,9 @@
 """Run on the Pi: cd pi && venv/bin/python -m unittest -v test_wake."""
 from dataclasses import replace
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import tempfile
+import threading
 import unittest
 from unittest.mock import Mock, patch
 import wave
@@ -100,6 +102,41 @@ class TurnTests(unittest.TestCase):
         wake.send_turn(self.cfg, self.path, "session", "JV801", http)
         playback.assert_not_called()
         self.assertTrue(self.path.exists())
+
+    @patch.object(wake, "play_mp3")
+    @patch.object(wake.time, "sleep")
+    def test_real_http_multipart_and_503_recovery(self, sleep, playback):
+        received = []
+        class Endpoint(BaseHTTPRequestHandler):
+            def do_POST(self):
+                body = self.rfile.read(int(self.headers["Content-Length"]))
+                received.append((dict(self.headers), body))
+                self.send_response(503 if len(received) == 1 else 200)
+                self.send_header("Content-Type", "audio/mpeg")
+                self.end_headers()
+                self.wfile.write(b"test-mp3")
+            def log_message(self, *_):
+                pass
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Endpoint)
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            cfg = replace(self.cfg, turn_url=f"http://127.0.0.1:{server.server_port}/turn")
+            with requests.Session() as http:
+                wake.send_turn(cfg, self.path, "wire-session", "JV801", http)
+        finally:
+            server.shutdown()
+            server.server_close()
+            worker.join()
+        self.assertEqual(len(received), 2)
+        for headers, body in received:
+            self.assertIn("multipart/form-data", headers["Content-Type"])
+            self.assertIn(b'name="audio"', body)
+            self.assertIn(b'name="session_id"', body)
+            self.assertIn(b"wire-session", body)
+            self.assertIn(self.path.read_bytes(), body)
+        self.assertEqual(received[0][0]["Idempotency-Key"], received[1][0]["Idempotency-Key"])
+        playback.assert_called_once_with(b"test-mp3", "JV801")
 
 
 if __name__ == "__main__":

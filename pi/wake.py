@@ -19,10 +19,16 @@ import wave
 import numpy as np
 import requests
 import sherpa_onnx
-import sounddevice as sd
 from dotenv import load_dotenv
 
 HERE = Path(__file__).resolve().parent
+# PortAudio reads ALSA configuration when sounddevice is imported. This local
+# plug PCM converts the JV801's native 48 kHz capture to 16 kHz without changing
+# the user's system audio configuration.
+if sys.platform.startswith("linux"):
+    os.environ.setdefault("ALSA_CONFIG_PATH", str(HERE / "alsa.conf"))
+import sounddevice as sd
+
 MODEL = HERE / "models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
 CHUNK = "epoch-12-avg-2-chunk-16-left-64"
 RATE = 16000
@@ -88,11 +94,19 @@ class Config:
 
 def device_name(substring, kind):
     """Return a name, never a persisted/index-based device selection."""
-    matches = [d["name"] for d in sd.query_devices()
-               if substring.casefold() in d["name"].casefold()
-               and d[f"max_{kind}_channels"] > 0]
+    matches = []
+    for device in sd.query_devices():
+        if (substring.casefold() not in device["name"].casefold()
+                or device[f"max_{kind}_channels"] <= 0):
+            continue
+        try:
+            getattr(sd, f"check_{kind}_settings")(
+                device=device["name"], samplerate=RATE, channels=1, dtype="float32")
+        except sd.PortAudioError:
+            continue
+        matches.append(device["name"])
     if len(matches) != 1:
-        raise RuntimeError(f"Expected one {kind} device matching {substring!r}; found {matches}")
+        raise RuntimeError(f"Expected one 16 kHz {kind} device matching {substring!r}; found {matches}")
     return matches[0]
 
 
