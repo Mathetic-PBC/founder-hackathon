@@ -1,8 +1,8 @@
 """Listen on the default mic and print when the wake phrase is heard.
 
-    python wake_word.py                       # "HEY BART"
-    python wake_word.py --keyword "HEY JARVIS"
-    python wake_word.py --score 2.0 --threshold 0.2   # more sensitive
+    python wake_word.py                       # "HEY BART" or "BART"
+    python wake_word.py --keyword "HEY JARVIS" --keyword "JARVIS"
+    python wake_word.py --score 2.0 --threshold 0.1   # more sensitive
 
 Uses sherpa-onnx keyword spotting: the phrase is plain text, no training.
 Same script runs on a Mac and on the Pi.
@@ -27,10 +27,11 @@ MODEL_DIR = MODELS_DIR / MODEL_NAME
 CHUNK = "epoch-12-avg-2-chunk-16-left-64.int8"
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--keyword", default="HEY BART")
+parser.add_argument("--keyword", action="append", help="wake phrase; repeat for several (default: HEY BART, BART)")
 parser.add_argument("--score", type=float, default=1.5, help="boost for the keyword; higher = easier to trigger")
 parser.add_argument("--threshold", type=float, default=0.15, help="lower = easier to trigger")
 args = parser.parse_args()
+keywords = [k.upper() for k in args.keyword or ["HEY BART", "BART"]]
 
 
 def ensure_model():
@@ -47,12 +48,11 @@ def ensure_model():
 
 
 def write_keywords_file():
-    # The model matches BPE tokens, e.g. "HEY BART" -> "▁HE Y ▁B AR T @HEY_BART"
+    # The model matches BPE tokens, one phrase per line, e.g. "HEY BART" -> "▁HE Y ▁B AR T @HEY_BART"
     sp = spm.SentencePieceProcessor(model_file=str(MODEL_DIR / "bpe.model"))
-    phrase = args.keyword.upper()
-    tokens = " ".join(sp.encode(phrase, out_type=str))
+    lines = [f"{' '.join(sp.encode(k, out_type=str))} @{k.replace(' ', '_')}" for k in keywords]
     path = MODELS_DIR / "keywords.txt"
-    path.write_text(f"{tokens} @{phrase.replace(' ', '_')}\n")
+    path.write_text("\n".join(lines) + "\n")
     return path
 
 
@@ -70,7 +70,7 @@ spotter = sherpa_onnx.KeywordSpotter(
 stream = spotter.create_stream()
 
 with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32", blocksize=FRAME) as mic:
-    print(f"listening for {args.keyword.upper()!r} on {sd.query_devices(kind='input')['name']}...")
+    print(f"listening for {' / '.join(keywords)} on {sd.query_devices(kind='input')['name']}...")
     while True:
         frame, _ = mic.read(FRAME)
         stream.accept_waveform(SAMPLE_RATE, np.squeeze(frame))
