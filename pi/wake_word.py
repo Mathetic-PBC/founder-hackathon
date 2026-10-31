@@ -43,8 +43,22 @@ parser.add_argument("--keyword", action="append", help="wake phrase; repeat for 
 parser.add_argument("--score", type=float, default=1.5, help="boost for the keyword; higher = easier to trigger")
 parser.add_argument("--threshold", type=float, default=0.15, help="lower = easier to trigger")
 parser.add_argument("--silence", type=float, default=0.8, help="seconds of silence that count as you having stopped talking")
+parser.add_argument("--device", default="JV801", help="part of the mic/speaker name to use; falls back to the system default if not found")
 args = parser.parse_args()
 keywords = [k.upper() for k in args.keyword or ["HEY JARVIS", "JARVIS"]]
+
+
+def find_device(kind):
+    # The JV801 shows up as two devices (mic and speaker), so match by name per direction
+    for i, d in enumerate(sd.query_devices()):
+        if args.device.lower() in d["name"].lower() and d[f"max_{kind}_channels"] > 0:
+            return i
+    print(f"no {kind} device matching {args.device!r}, using the system default")
+    return None
+
+
+mic_device = find_device("input")
+speaker_device = find_device("output")
 
 
 def ensure_models():
@@ -73,11 +87,11 @@ def write_keywords_file():
 
 def chime():
     # Two rising beeps, generated so there's no sound file to ship
-    rate = int(sd.query_devices(kind="output")["default_samplerate"])
+    rate = int(sd.query_devices(speaker_device, "output")["default_samplerate"])
     t = np.arange(int(rate * 0.12)) / rate
     fade = np.minimum(1, np.minimum(t, t[::-1]) / 0.01)
     beeps = [0.3 * np.sin(2 * np.pi * f * t) * fade for f in (660, 990)]
-    sd.play(np.concatenate([beeps[0], np.zeros(int(rate * 0.04)), beeps[1]]).astype(np.float32), rate)
+    sd.play(np.concatenate([beeps[0], np.zeros(int(rate * 0.04)), beeps[1]]).astype(np.float32), rate, device=speaker_device)
     sd.wait()
 
 
@@ -113,8 +127,10 @@ vad_config.sample_rate = SAMPLE_RATE
 vad = sherpa_onnx.VoiceActivityDetector(vad_config, buffer_size_in_seconds=60)
 VAD_WINDOW = vad_config.silero_vad.window_size
 
-with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32", blocksize=FRAME) as mic:
-    print(f"waiting for {' / '.join(keywords)} on {sd.query_devices(kind='input')['name']}...")
+with sd.InputStream(device=mic_device, samplerate=SAMPLE_RATE, channels=1, dtype="float32", blocksize=FRAME) as mic:
+    print(f"mic: {sd.query_devices(mic_device, 'input')['name']}, "
+          f"speaker: {sd.query_devices(speaker_device, 'output')['name']}")
+    print(f"waiting for {' / '.join(keywords)}...")
     listening = speaking = False
     pending = np.zeros(0, dtype=np.float32)
     while True:

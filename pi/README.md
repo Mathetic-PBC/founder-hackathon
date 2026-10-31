@@ -3,7 +3,8 @@
 Say the wake phrase, hear a chime, then ask your question. When you stop talking, the terminal prints how long you spoke and the size of the saved audio file, then goes back to waiting for the wake phrase.
 
 ```
-waiting for HEY JARVIS / JARVIS on MacBook Pro Microphone...
+mic: JOUNIVO JV801, speaker: JOUNIVO JV801
+waiting for HEY JARVIS / JARVIS...
 heard HEY_JARVIS, listening...
   you're talking...
   you stopped talking: 2.6 s, 81.9 KB -> recordings/20261030-180018-953639.wav
@@ -27,6 +28,7 @@ The first run downloads the models (~3 MB keyword model, ~0.6 MB VAD) into `mode
 
 ## Options
 
+- `--device` (default `JV801`): part of the mic/speaker name to use. The JV801 puck is picked automatically when it's plugged in, for both the mic and the chime; otherwise it falls back to the system default. `python -m sounddevice` lists device names.
 - `--keyword` replaces the default wake phrases and can be repeated: `--keyword "HEY BART" --keyword "BART"`.
 - `--threshold` (default 0.15): lower it if the wake phrase misses you, raise it if it fires on other speech.
 - `--score` (default 1.5): boost for the wake phrase. Raise it if it misses you.
