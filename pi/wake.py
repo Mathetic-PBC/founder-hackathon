@@ -94,17 +94,15 @@ class Config:
 
 def device_name(substring, kind):
     """Return a name, never a persisted/index-based device selection."""
-    matches = []
-    for device in sd.query_devices():
-        if (substring.casefold() not in device["name"].casefold()
-                or device[f"max_{kind}_channels"] <= 0):
-            continue
-        try:
-            getattr(sd, f"check_{kind}_settings")(
-                device=device["name"], samplerate=RATE, channels=1, dtype="float32")
-        except sd.PortAudioError:
-            continue
-        matches.append(device["name"])
+    matches = [d["name"] for d in sd.query_devices()
+               if substring.casefold() in d["name"].casefold()
+               and d[f"max_{kind}_channels"] > 0]
+    # Prefer our named conversion PCM over the same card's raw hardware entry.
+    # Debian PortAudio's IsFormatSupported rejects 16 kHz on plug PCMs even
+    # though opening/reading/writing the streams succeeds. Validate by opening.
+    converted = [name for name in matches if name.startswith("bart_")]
+    if converted:
+        matches = converted
     if len(matches) != 1:
         raise RuntimeError(f"Expected one 16 kHz {kind} device matching {substring!r}; found {matches}")
     return matches[0]
@@ -284,8 +282,8 @@ def make_spotter(cfg):
 def listen(cfg, spotter, session_id, http):
     mic = device_name(cfg.mic, "input")
     speaker = device_name(cfg.speaker, "output")
-    sd.check_input_settings(device=mic, samplerate=RATE, channels=1, dtype="float32")
-    sd.check_output_settings(device=speaker, samplerate=RATE, channels=1, dtype="float32")
+    with sd.OutputStream(device=speaker, samplerate=RATE, channels=1, dtype="float32"):
+        pass
     LOG.info("Microphone: %s; speaker: %s", mic, speaker)
     capture = Microphone()
     history = deque(maxlen=math.ceil(cfg.pre_roll * RATE / BLOCK))

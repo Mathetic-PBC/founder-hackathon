@@ -35,7 +35,7 @@ with a **read-only** GitHub deploy key on the Pi; never copy Mac credentials.
 with `ALSA_CONFIG_PATH="$PWD/alsa.conf" venv/bin/python -m sounddevice`.
 The JV801's microphone is natively 48 kHz. `alsa.conf` adds `bart_JV801`, an
 application-local ALSA plug device that converts to/from 16 kHz mono. Selection
-matches the configured name and checks format support; it never falls back to
+matches the configured name and validates by opening the stream; it never falls back to
 an unrelated device or a fixed card index. System audio settings are preserved.
 For a different USB card, update the `slave.pcm` card name and hint in this file.
 USB startup/disconnect errors retry.
