@@ -1,0 +1,795 @@
+/* Bart's dashboard in Engelbart's design system. tokens/ is copied unchanged from engelbart-canvas
+   (src/renderer/tokens, plus fonts.css from design/goal-canvas/_ds); every rule below uses those variables.
+   One ink, five grays, one blue accent for links and focus, no shadows, micro-caps only for section labels. */
+@import "./tokens/fonts.css";
+@import "./tokens/colors.css";
+@import "./tokens/typography.css";
+@import "./tokens/spacing.css";
+@import "./tokens/effects.css";
+
+/* Engelbart's dark scheme is a [data-dark="true"] / .dark override (tokens/colors.css); the same mapping
+   applies here when the OS is dark. */
+:root {
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: var(--dark-0);
+    --panel: var(--dark-0);
+    --panel2: var(--dark-150);
+    --tint: var(--dark-150);
+    --hov: var(--dark-200);
+    --ink: var(--dark-900);
+    --mut: var(--dark-700);
+    --fnt: var(--dark-500);
+    --bd: var(--dark-300);
+    --bd2: var(--dark-400);
+    --line: var(--dark-300);
+    --line-soft: var(--dark-200);
+    --acc: var(--blue-400);
+    --acc-hov: var(--blue-600);
+    --accbg: rgba(50, 145, 255, 0.25);
+    --acchov: rgba(50, 145, 255, 0.12);
+    --link: var(--acc);
+    --onacc: var(--dark-0);
+    --del: var(--red-400);
+    --dtxt: var(--dark-900);
+  }
+}
+
+/* ── base ─────────────────────────────────────────────────────────────────────────────── */
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+body {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-page);
+  color: var(--text-body);
+  font: var(--text-14);
+  -webkit-text-size-adjust: 100%;
+}
+a {
+  color: var(--link);
+  text-decoration: underline;
+  text-underline-offset: var(--space-1);
+}
+a:hover {
+  color: var(--acc-hov);
+}
+button {
+  font: inherit;
+  color: inherit;
+}
+:is(a, button, summary):focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+::placeholder {
+  color: var(--fnt);
+  font-style: italic;
+}
+::selection {
+  background: var(--accbg);
+}
+p {
+  margin: 0;
+}
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.microcap {
+  font: var(--text-microcap);
+  letter-spacing: var(--track-microcap);
+  text-transform: uppercase;
+  color: var(--fnt);
+}
+
+/* ── top bar ──────────────────────────────────────────────────────────────────────────── */
+.top {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-3) var(--space-6);
+  border-bottom: var(--border-w) solid var(--border-default);
+  background: var(--surface-page);
+}
+.brand {
+  font: var(--text-brand);
+  letter-spacing: var(--track-brand);
+  color: var(--ink);
+  text-decoration: none;
+}
+.brand:hover {
+  color: var(--ink);
+}
+.nav {
+  display: flex;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.nav a {
+  padding: var(--pad-opt);
+  border-radius: var(--radius-sm);
+  font: var(--text-btn);
+  color: var(--mut);
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    background var(--dur-fast),
+    color var(--dur-fast);
+}
+.nav a:hover {
+  background: var(--hov);
+  color: var(--ink);
+}
+.nav a[aria-current="page"] {
+  background: var(--hov);
+  color: var(--ink);
+}
+
+/* ── frame: the window doesn't scroll, the rail and the column do (as in Engelbart) ────────── */
+.main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.shell {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: var(--rail-width) minmax(0, 1fr);
+}
+.column,
+.page {
+  min-height: 0;
+  overflow-y: auto;
+}
+.page {
+  flex: 1;
+}
+.column-inner,
+.page-inner {
+  max-width: var(--column-width);
+  margin: 0 auto;
+  padding: var(--space-9) var(--space-8);
+  animation: rise var(--dur-rise) var(--ease-rise);
+}
+.page-inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-7);
+}
+.back {
+  display: none;
+}
+
+/* ── rail ─────────────────────────────────────────────────────────────────────────────── */
+.rail {
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-6) var(--space-4) var(--space-9);
+  background: var(--surface-rail);
+  border-right: var(--border-w) solid var(--border-default);
+}
+.rail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 0 var(--space-3);
+}
+.rail-add {
+  font: var(--text-btn);
+  color: var(--mut);
+  text-decoration: none;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-xs);
+  transition:
+    background var(--dur-fast),
+    color var(--dur-fast);
+}
+.rail-add:hover {
+  background: var(--bd);
+  color: var(--ink);
+}
+.rail-empty {
+  padding: var(--space-4) var(--space-3) 0;
+  font: var(--text-12-5);
+  color: var(--fnt);
+}
+.rail-book {
+  margin-top: var(--space-7);
+}
+.rail-book-name {
+  padding: 0 var(--space-3) var(--space-2);
+  font: var(--text-card-title);
+  color: var(--ink);
+  text-wrap: pretty;
+}
+.rail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+/* rows wash one gray darker on the rail's gray, and a shade more where you are (Engelbart's sidebar) */
+.rail-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--pad-opt);
+  border-radius: var(--radius-xs);
+  font: var(--text-row);
+  font-variant-numeric: tabular-nums;
+  color: var(--mut);
+  text-decoration: none;
+  transition:
+    background var(--dur-fast),
+    color var(--dur-fast);
+}
+.rail-row:hover {
+  background: var(--hov);
+  color: var(--ink);
+}
+.rail-row[aria-current="page"] {
+  background: var(--bd);
+  color: var(--ink);
+}
+
+/* ── column content ───────────────────────────────────────────────────────────────────── */
+.title {
+  margin: var(--space-3) 0 var(--space-2);
+  font: var(--text-goal-title);
+  letter-spacing: var(--track-goal-title);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.column-inner > .title:first-child,
+.column-inner > .back + .title {
+  margin-top: 0;
+}
+.page-inner > .title {
+  margin: 0;
+}
+.title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+.empty-text {
+  font: var(--text-13);
+  color: var(--fnt);
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+}
+.form .actions {
+  margin-top: 0;
+}
+.rule {
+  height: var(--border-w);
+  margin: var(--space-7) 0;
+  border: 0;
+  background: var(--line);
+}
+
+/* ── buttons: sentence case; outline by default, ink fill for the one primary action ────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--pad-btn-lg);
+  font: var(--text-btn);
+  color: var(--ink);
+  background: var(--panel);
+  border: var(--border-w) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast),
+    color var(--dur-fast),
+    background var(--dur-fast),
+    opacity var(--dur-fast);
+}
+.btn:hover {
+  color: var(--ink);
+  background: var(--hov);
+  border-color: var(--border-strong);
+}
+.btn-filled,
+.btn-filled:hover {
+  color: var(--onacc);
+  background: var(--ink);
+  border-color: var(--ink);
+}
+.btn-filled:hover {
+  opacity: var(--hover-opacity);
+}
+.btn-sm {
+  padding: var(--pad-field-sm);
+}
+.btn-link,
+.btn-link:hover {
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--acc);
+}
+.btn-link:hover {
+  color: var(--acc-hov);
+}
+.btn:disabled {
+  cursor: default;
+  opacity: 1;
+  color: var(--fnt);
+  background: var(--hov);
+  border-color: var(--border-default);
+}
+
+/* ── forms: tinted fields, accent border and ring on focus ─────────────────────────────── */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-7);
+  margin-top: var(--space-7);
+}
+.card .form {
+  margin-top: 0;
+}
+.form-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.label {
+  font: var(--text-microcap);
+  letter-spacing: var(--track-microcap);
+  text-transform: uppercase;
+  color: var(--fnt);
+}
+.field {
+  position: relative;
+  padding: var(--pad-field);
+  background: var(--surface-field);
+  border: var(--border-w) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  transition:
+    border-color var(--dur-fast),
+    box-shadow var(--dur-fast);
+}
+.field:hover {
+  border-color: var(--border-strong);
+}
+.field:focus-within {
+  border-color: var(--acc);
+  box-shadow: var(--focus-ring);
+}
+.field :is(input, textarea, select) {
+  all: unset;
+  display: block;
+  width: 100%;
+  font: var(--text-14);
+  color: var(--ink);
+  caret-color: var(--acc);
+}
+.field textarea {
+  resize: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  field-sizing: content;
+}
+/* notes are written as they're read: Source Code Pro, Engelbart's notes face */
+.field-note textarea {
+  font: var(--text-mono-notes);
+  color: var(--dtxt);
+}
+.field-note textarea {
+  min-height: calc(var(--space-9) * 6);
+}
+.select select {
+  cursor: pointer;
+  padding-right: var(--space-7);
+}
+.select option {
+  color: initial;
+  background: initial;
+}
+.select::after {
+  content: "›";
+  position: absolute;
+  right: var(--space-5);
+  top: 50%;
+  transform: translateY(-50%) rotate(90deg);
+  color: var(--fnt);
+  pointer-events: none;
+}
+/* the new-book fields show only while "A new book…" is picked; no script needed */
+.newbook {
+  display: none;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: calc(var(--space-4) - var(--space-7));
+}
+.form:has(select[name="book"] option[value="new"]:checked) .newbook {
+  display: flex;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font: var(--text-13);
+  color: var(--ink);
+  cursor: pointer;
+}
+.check input {
+  margin: 0;
+  accent-color: var(--ink);
+}
+
+/* Messages after a form: no red (Engelbart keeps red for destructive hover), a stronger border instead */
+.alert,
+.notice {
+  margin-top: var(--space-6);
+  padding: var(--pad-field);
+  border: var(--border-w) solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font: var(--text-13);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.notice {
+  border-color: var(--border-default);
+  background: var(--surface-field);
+}
+.form .alert,
+.form .notice,
+.page-inner > .alert {
+  margin-top: 0;
+}
+/* after adding someone: the number they have to text first, large */
+.assigned {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-6);
+}
+.line-number {
+  font: var(--text-hero);
+  letter-spacing: var(--track-hero);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  text-decoration: none;
+}
+.line-number:hover {
+  color: var(--ink);
+}
+
+/* ── card and grouped rows ────────────────────────────────────────────────────────────── */
+.card {
+  background: var(--surface-card);
+  border: var(--border-w) solid var(--border-default);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.card-head {
+  padding: var(--space-5) var(--space-6) 0;
+}
+.card-title {
+  font: var(--text-card-title);
+  color: var(--ink);
+}
+.card-rule {
+  height: var(--border-w);
+  margin-top: var(--space-3);
+  background: var(--border-default);
+}
+.card-body {
+  padding: var(--space-6);
+}
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--surface-field);
+  border: var(--border-w) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.list > li + li {
+  border-top: var(--border-w) solid var(--border-default);
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4) var(--space-5);
+  padding: var(--space-5) var(--space-6);
+}
+.row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--space-3);
+}
+.row-name {
+  font: var(--text-row);
+  color: var(--ink);
+}
+.row-hint {
+  font: var(--text-meta);
+  color: var(--fnt);
+  font-variant-numeric: tabular-nums;
+}
+.row-status {
+  flex: none;
+  font: var(--text-meta);
+  color: var(--mut);
+}
+.row-act {
+  flex: none;
+}
+.row-wide {
+  flex-basis: 100%;
+}
+.row-wide > :first-child {
+  margin-top: 0;
+}
+/* Engelbart's mark: an ink circle when on, a ring when off */
+.mark {
+  flex: none;
+  width: 0.75em;
+  height: 0.75em;
+  border-radius: var(--radius-round);
+  border: var(--border-w-mark) solid var(--ink);
+  background: var(--ink);
+}
+.mark-off {
+  border-color: var(--border-strong);
+  background: transparent;
+}
+
+/* ── books: cover, title, author, notes ───────────────────────────────────────────────── */
+.books {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.book {
+  display: flex;
+  gap: var(--space-6);
+  padding: var(--space-6);
+  background: var(--surface-card);
+  border: var(--border-w) solid var(--border-default);
+  border-radius: var(--radius-lg);
+}
+.cover {
+  flex: none;
+  width: calc(var(--space-9) * 1.5);
+  aspect-ratio: 2 / 3;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--surface-field);
+  border: var(--border-w) solid var(--border-default);
+  border-radius: var(--radius-xs);
+  font: var(--text-question);
+  color: var(--fnt);
+}
+.cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.book-main {
+  flex: 1;
+  min-width: 0;
+}
+.book-name {
+  font: var(--text-card-title);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.book-author {
+  font: var(--text-13);
+  color: var(--mut);
+}
+.book-notes {
+  list-style: none;
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.book-notes a {
+  display: inline-block;
+  padding: var(--space-1) var(--space-3);
+  border: var(--border-w) solid var(--border-default);
+  border-radius: var(--radius-sm);
+  font: var(--text-12-5);
+  color: var(--mut);
+  text-decoration: none;
+  font-variant-numeric: tabular-nums;
+  transition:
+    background var(--dur-fast),
+    border-color var(--dur-fast),
+    color var(--dur-fast);
+}
+.book-notes a:hover {
+  background: var(--hov);
+  border-color: var(--border-strong);
+  color: var(--ink);
+}
+.book-notes .book-add {
+  border-style: dashed;
+}
+
+/* ── note text: Source Code Pro, as Engelbart sets notes ───────────────────────────────── */
+.md {
+  font: var(--text-mono-notes);
+  color: var(--dtxt);
+  overflow-wrap: anywhere;
+}
+.md > * + * {
+  margin-top: var(--space-4);
+}
+.md > :is(h1, h2, h3, h4, h5, h6) {
+  margin-top: var(--space-7);
+}
+.md > :first-child {
+  margin-top: 0;
+}
+.md :is(h1, h2, h3, h4, h5, h6) {
+  margin-bottom: 0;
+  color: var(--ink);
+}
+.md h1 {
+  font: var(--text-card-title);
+  font-family: var(--font-mono);
+}
+.md :is(h2, h3, h4, h5, h6) {
+  font: var(--text-mono-notes);
+  font-weight: 600;
+}
+.md blockquote {
+  margin: 0;
+  padding-left: var(--space-5);
+  border-left: var(--border-w-now) solid var(--border-strong);
+  color: var(--ink);
+}
+.md blockquote > * + * {
+  margin-top: var(--space-3);
+}
+.md :is(ul, ol) {
+  margin: 0;
+  padding-left: var(--space-7);
+}
+.md code {
+  font: inherit;
+  padding: 0 var(--space-1);
+  background: var(--surface-field);
+  border-radius: var(--radius-xs);
+}
+.md pre {
+  margin: 0;
+  padding: var(--pad-field);
+  overflow-x: auto;
+  background: var(--surface-field);
+  border: var(--border-w) solid var(--border-default);
+  border-radius: var(--radius-sm);
+}
+.md pre code {
+  padding: 0;
+  background: none;
+}
+.md hr {
+  height: var(--border-w);
+  border: 0;
+  background: var(--line);
+}
+.md img {
+  max-width: 100%;
+  height: auto;
+  vertical-align: middle;
+}
+/* a photo on its own line, as Bart files them: an attachment card */
+.md-photo img {
+  display: block;
+  border: var(--border-w) solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+.md-missing {
+  font: var(--text-meta);
+  color: var(--fnt);
+  font-style: italic;
+}
+.md-empty {
+  font: var(--text-13);
+  color: var(--fnt);
+}
+
+/* ── phone: one pane at a time; the page scrolls normally ─────────────────────────────────
+   (media queries can't read custom properties, so the breakpoint is a number) */
+@media (max-width: 760px) {
+  html,
+  body {
+    height: auto;
+  }
+  .main,
+  .shell {
+    display: block;
+  }
+  .column,
+  .page,
+  .rail {
+    overflow: visible;
+  }
+  /* the rail is the whole page here, so it sits on the page surface */
+  .rail {
+    background: var(--surface-page);
+    border-right: 0;
+    padding: var(--space-4) var(--space-3) var(--space-9);
+  }
+  .shell[data-open] .rail,
+  .shell:not([data-open]) .column {
+    display: none;
+  }
+  .back {
+    display: inline-flex;
+    margin-bottom: var(--space-6);
+    font: var(--text-btn);
+    color: var(--mut);
+    text-decoration: none;
+  }
+  .column-inner,
+  .page-inner {
+    padding: var(--space-6) var(--space-5) var(--space-9);
+  }
+  .top {
+    gap: var(--space-4);
+    padding: var(--space-2) var(--space-5);
+  }
+  .nav a {
+    padding: var(--space-2) var(--space-3);
+  }
+  .row {
+    padding: var(--space-5);
+  }
+  .line-number {
+    font: var(--text-wizard-title);
+    letter-spacing: var(--track-wizard-title);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .column-inner,
+  .page-inner {
+    animation: none;
+  }
+}

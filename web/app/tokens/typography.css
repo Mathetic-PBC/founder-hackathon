@@ -1,0 +1,38 @@
+/* Two families. System sans for everything; Source Code Pro for drafts/notes. */
+:root{
+  --font-sans:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  --font-mono:'Source Code Pro',ui-monospace,SFMono-Regular,Menlo,monospace;
+
+  /* the tracked micro-caps that label everything */
+  --text-microcap:500 9px/1 var(--font-sans);      --track-microcap:1.6px;
+  --text-microcap-lg:500 10px/1 var(--font-sans);  --track-microcap-lg:1.6px;
+  --text-microcap-btn:500 9px/1 var(--font-sans);  --track-btn:1.5px;   /* .btn */
+  --text-microcap-btn-lg:500 10px/1 var(--font-sans); --track-btn-lg:1.4px; /* wizard .btn */
+
+  /* sentence-case UI (the default for controls; micro-caps are for section labels only) */
+  --text-btn:500 13px/1 var(--font-sans);
+  --text-row:14px/1.4 var(--font-sans);        /* list rows */
+  --text-meta:12px/1.4 var(--font-sans);       /* "PDF · 1.0 MB", "optional" */
+  --text-stop-title:500 17px/1.3 var(--font-sans); /* slider stop title, in --acc */
+
+  /* body scale (fractional sizes are deliberate — copy them exactly) */
+  --text-11:11px/1.6 var(--font-sans);
+  --text-11-5:11.5px/1.6 var(--font-sans);
+  --text-12:12px/1.7 var(--font-sans);
+  --text-12-5:12.5px/1.7 var(--font-sans);
+  --text-13:13px/1.75 var(--font-sans);
+  --text-14:14px/1.6 var(--font-sans);
+  --text-prose:12.5px/1.8 var(--font-sans);
+
+  /* headings */
+  --text-card-title:500 14.5px/1.5 var(--font-sans);
+  --text-question:500 19px/1.4 var(--font-sans);   --track-question:-0.2px;
+  --text-goal-title:500 22px/1.35 var(--font-sans); --track-goal-title:-0.3px;
+  --text-wizard-title:500 26px/1.3 var(--font-sans); --track-wizard-title:-0.4px;
+  --text-hero:500 34px/1 var(--font-sans);         --track-hero:-0.4px;
+  --text-brand:500 17px/1 var(--font-sans);        --track-brand:-0.2px;
+
+  /* mono */
+  --text-mono:12px/1.6 var(--font-mono);
+  --text-mono-notes:12px/1.7 var(--font-mono);
+}

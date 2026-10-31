@@ -1,0 +1,4 @@
+/* Engelbart ships no font binaries. The UI is set in the platform's system sans;
+   code and notes are Source Code Pro, loaded from Google Fonts exactly as the
+   product does (hc/src/human_compact/trajectory/web/setup.html). */
+@import url("https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;500;600&display=swap");

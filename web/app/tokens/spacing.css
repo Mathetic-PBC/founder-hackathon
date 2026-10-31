@@ -1,0 +1,26 @@
+/* Spacing is not on a grid; values are copied from the product. */
+:root{
+  --space-1:3px;   /* label-to-value */
+  --space-2:6px;   /* seed gap, dot gap */
+  --space-3:9px;   /* button gap, rule margin */
+  --space-4:12px;  /* row gap */
+  --space-5:14px;  /* field padding-x */
+  --space-6:18px;  /* actions margin-top, card padding-x */
+  --space-7:22px;  /* field margin-top */
+  --space-8:32px;  /* rail padding-x, column padding */
+  --space-9:40px;  /* wizard main padding, steps margin-top */
+
+  --pad-field:12px 14px;      /* wizard field */
+  --pad-field-sm:9px 12px;    /* .field */
+  --pad-btn:7px 15px;         /* .btn */
+  --pad-btn-lg:9px 18px;      /* wizard .btn */
+  --pad-seed:5px 11px;
+  --pad-opt:9px 12px;
+  --pad-opt-lg:12px 14px;
+  --pad-card-body:14px 18px 16px;
+
+  --rail-width:340px;
+  --wizard-body-width:600px;
+  --column-width:820px;
+  --inspector-width:300px;
+}

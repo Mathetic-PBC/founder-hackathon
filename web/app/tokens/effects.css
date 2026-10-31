@@ -1,0 +1,28 @@
+/* Radii, borders, motion. There are no drop shadows in Engelbart. */
+:root{
+  --radius-xs:6px;     /* tree rows, drafts */
+  --radius-sm:8px;     /* fields, options, buttons, list groups */
+  --radius-md:10px;    /* attachment cards */
+  --radius-lg:12px;    /* cards */
+  --radius-pill:999px; /* seeds, name-row, cmd, caps buttons */
+  --radius-round:50%;  /* marks, arrows, step circles */
+
+  --border-w:1px;
+  --border-w-mark:1.5px;
+  --border-w-now:2px;
+
+  --shadow-none:none;
+  --focus-ring:0 0 0 3px var(--accbg);   /* slider thumb, focused fields */
+  --focus-ring-sm:0 0 0 2px var(--acchov);
+
+  --dur-fast:120ms; /* @kind other */   /* hover: color, border-color, background, opacity */
+  --dur-med:140ms; /* @kind other */    /* pager dot width */
+  --dur-rise:260ms; /* @kind other */   /* step entrance */
+  --dur-slow:300ms; /* @kind other */   /* rail connector fill */
+  --ease-rise:cubic-bezier(0.25,0.1,0.25,1); /* @kind other */
+  --hover-opacity:0.86; /* @kind other */  /* filled button hover */
+  --disabled-opacity:0.4; /* @kind other */
+  --pulse-idle:0.18; /* @kind other */
+}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes pulse{0%,70%,100%{opacity:.18}35%{opacity:1}}
