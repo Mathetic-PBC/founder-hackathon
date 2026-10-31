@@ -1,3 +1,4 @@
-openwakeword>=0.6,<0.7
+sherpa-onnx>=2.0
+sentencepiece
 sounddevice
 numpy

@@ -1,35 +1,27 @@
 # pi
 
-Wake-word detection with [openWakeWord](https://github.com/dscripka/openWakeWord). No account or key needed.
+Wake-word detection with [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) keyword spotting. The wake phrase is plain text ("HEY BART"), so there's no model to train, and no account or key.
 
-## Mac
-
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install openwakeword sounddevice numpy
-python wake.py   # say "hey jarvis"
-```
-
-The first run asks for microphone access for your terminal.
-
-## Raspberry Pi
+## Setup (Mac or Pi)
 
 ```bash
+# Pi only: audio library for sounddevice
 sudo apt install -y libportaudio2
+
 python3 -m venv .venv && source .venv/bin/activate
-# On Python 3.12+, plain `pip install openwakeword` fails: it pulls in
-# tflite-runtime, which only ships wheels up to 3.11. We use ONNX, so skip it.
-pip install --no-deps openwakeword
-pip install onnxruntime scipy scikit-learn tqdm requests numpy sounddevice
-python wake.py
+pip install -r requirements.txt
+python wake_word.py   # say "hey bart"
 ```
 
-If opening the mic at 16 kHz fails, run `python -m sounddevice` to check the speakerphone is listed and what it supports.
+The first run downloads the ~3 MB English keyword model into `models/`. On a Mac, it also asks for microphone access for your terminal.
 
-## Custom "Hey Bart"
+## Tuning
 
-Train a model with openWakeWord's Colab notebook (about an hour), copy the `.onnx` here, and run:
+Two knobs, both on the command line:
 
-```bash
-python wake.py --model hey_bart.onnx
-```
+- `--score` (default 1.5): boost for the keyword. Raise it if it misses you.
+- `--threshold` (default 0.15): lower it if it misses you, raise it if it fires on other speech.
+
+Tune these with real people talking at the demo table, not in a quiet room. `--keyword "HEY JARVIS"` swaps the phrase.
+
+If opening the mic at 16 kHz fails on the Pi, run `python -m sounddevice` to check the speakerphone is listed and what it supports.
