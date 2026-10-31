@@ -22,7 +22,7 @@ import agents
 REALTIME_RATE = 24000
 # Same as wake_word.py, so the test behaves like the device
 INSTRUCTIONS = (
-    "You are Jarvis, a reading companion. The user is reading a physical book and talking to you "
+    "You are Bart, a reading companion. The user is reading a physical book and talking to you "
     "through a small speaker. Answer directly in one to three short spoken sentences. "
     "Don't announce that you're thinking."
 )
@@ -73,12 +73,12 @@ with OpenAI().realtime.connect(model=args.model) as conn:
             if event.type == "conversation.item.input_audio_transcription.completed":
                 print(f"  you: {event.transcript.strip()}")
             elif event.type == "response.output_audio_transcript.done":
-                print(f"  jarvis: {event.transcript.strip()}")
+                print(f"  bart: {event.transcript.strip()}")
             elif event.type == "error":
                 print(f"  openai error: {event.error.message}")
                 break
             elif event.type == "response.done":
-                if agents.handle(conn, event.response, on_captured=lambda: print("  jarvis: Captured.")):
+                if agents.handle(conn, event.response, on_captured=lambda: print("  bart: Captured.")):
                     continue
                 break
 

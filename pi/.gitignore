@@ -5,3 +5,5 @@ recordings/
 .env
 .env.*
 vault/
+venv/
+!.env.example

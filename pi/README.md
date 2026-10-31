@@ -4,18 +4,18 @@ Say the wake phrase, hear a rising chime, then talk. Each time you stop talking,
 
 ```
 mic: JOUNIVO JV801, speaker: JOUNIVO JV801
-waiting for HEY JARVIS / JARVIS...
-heard HEY_JARVIS, listening until you say QUIT...
+waiting for HEY BART...
+heard HEY_BART, listening until you say QUIT...
   you're talking...
   you stopped talking: 2.6 s, 81.9 KB -> recordings/20261030-181536-891889.wav
   you: What does the author mean by the word ephemeral on this page?
-  jarvis: "Ephemeral" generally means short-lived or temporary. ...
+  bart: "Ephemeral" generally means short-lived or temporary. ...
   you're talking...
   you stopped talking: 1.8 s, 55.9 KB -> recordings/20261030-181539-811519.wav
   you: Can you use that word in a sentence?
-  jarvis: Sure! A rainbow is a perfect example of something ephemeral...
+  bart: Sure! A rainbow is a perfect example of something ephemeral...
 heard QUIT, stopped listening
-waiting for HEY JARVIS / JARVIS...
+waiting for HEY BART...
 ```
 
 Listening runs on the device with [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx): keyword spotting for the wake and quit words (plain text, so no model to train) and Silero VAD to tell when you've stopped talking. Only finished sentences go to OpenAI, so the room isn't streamed while it's waiting.
@@ -29,7 +29,7 @@ sudo apt install -y libportaudio2
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 echo 'OPENAI_API_KEY=sk-...' > .env   # git-ignored
-python wake_word.py   # say "hey jarvis", wait for the chime, talk, then say "quit"
+python wake_word.py   # say "hey bart", wait for the chime, talk, then say "quit"
 ```
 
 The first run downloads the models (~3 MB keyword model, ~0.6 MB VAD) into `models/`. On a Mac, it also asks for microphone access for your terminal. Recordings are saved as 16 kHz mono WAV in `recordings/`; both folders are git-ignored. Without a key in `.env`, sentences are only recorded.
@@ -74,13 +74,13 @@ python test_agents.py --wav recordings/<file>.wav
 
 ## Options
 
-- `--device` (default `JV801`): part of the mic/speaker name to use. The JV801 puck is picked automatically when it's plugged in, for both the mic and the chime; otherwise it falls back to the system default. `python -m sounddevice` lists device names.
+- `--device` (default `JV801`): part of the mic/speaker name to use. The JV801 puck is picked automatically when it's plugged in, for both the mic and the chime; a missing or ambiguous device is an error (there is no default-device fallback). `python -m sounddevice` lists device names.
 - `--model` (default `gpt-realtime-2.1-mini`) and `--voice` (default `marin`): the OpenAI Realtime model and voice.
 - `--keyword` replaces the default wake phrases and can be repeated: `--keyword "HEY BART" --keyword "BART"`.
 - `--quit` replaces the default stop word (`QUIT`) and can be repeated: `--quit "QUIT" --quit "STOP LISTENING"`.
 - `--threshold` (default 0.15): lower it if the wake phrase misses you, raise it if it fires on other speech.
 - `--score` (default 1.5): boost for the wake phrase. Raise it if it misses you.
-- `--silence` (default 0.8): seconds of quiet that count as you having stopped talking. Raise it if it cuts you off mid-sentence.
+- `--silence` (default 1.5): seconds of quiet that count as you having stopped talking. Raise it if it cuts you off mid-sentence.
 
 Tune these with real people talking at the demo table, not in a quiet room.
 
@@ -88,4 +88,60 @@ A single word ("JARVIS", "BART") is less reliable than the two-word phrase: it g
 
 "QUIT" is spotted anywhere, so a sentence like "why did he quit his job?" also stops listening.
 
-If opening the mic at 16 kHz fails on the Pi, run `python -m sounddevice` to check the speakerphone is listed and what it supports.
+On the Pi, `alsa.conf` exposes the name `bart_JV801`, converting its native 48 kHz capture into 16 kHz mono. Hardware volume is reapplied before playback because the audio manager otherwise restores it to 0% at boot.
+
+## Pi deployment from the agents branch
+
+```bash
+git clone --branch agents https://github.com/Mathetic-PBC/founder-hackathon.git ~/founder-hackathon
+cd ~/founder-hackathon
+bash pi/setup.sh
+cd pi
+nano .env
+venv/bin/python -u wake_word.py --check
+venv/bin/python -u wake_word.py
+```
+
+`setup.sh` can be repeated: it preserves `.env`, recordings and existing models.
+It installs pinned dependencies and uses system site packages for the Pi's
+preinstalled `picamera2`. `KEYWORDS_SCORE=1.5` and `KEYWORDS_THRESHOLD=0.15` in
+`.env` tune the wake word; `MIC_DEVICE` / `SPEAKER_DEVICE` select by name.
+`SILENCE_SECONDS=1.5`, `MAX_RECORD_SECONDS=15`, and `IDLE_SECONDS=30` control
+recording and the conversation timeout. Capture continues through the chime,
+with pre-roll to preserve immediate speech. Each saved WAV is 16-bit mono at
+16 kHz and at most 15 seconds, and logs `got utterance: <path>`.
+
+Use the deployed HTTPS address for `BART_URL`; localhost would refer to the Pi.
+Secrets belong only in ignored `.env`. `CHIME_VOLUME=0.35` and
+`HARDWARE_VOLUME=75` are the tested speaker settings in the noisy venue.
+
+Stop a manual listener before installing the user service:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp ~/founder-hackathon/pi/bart.service ~/.config/systemd/user/bart.service
+systemctl --user daemon-reload
+systemctl --user enable --now bart
+sudo loginctl enable-linger dbarron
+sudo mkdir -p /etc/systemd/journald.conf.d
+sudo cp ~/founder-hackathon/pi/bart-journald.conf /etc/systemd/journald.conf.d/60-bart.conf
+sudo systemctl restart systemd-journald
+sudo journalctl --flush
+journalctl --user -u bart -f
+```
+
+The journal configuration keeps at most 64 MB / seven days. For unattended
+boot testing, `sudo raspi-config nonint do_boot_behaviour B3` leaves the desktop
+login screen available but disables automatic login. Keep the iPhone hotspot.
+
+Update from the Mac (the Pi checkout tracks `agents`):
+
+```bash
+ssh pi 'cd ~/founder-hackathon && git pull --ff-only && systemctl --user restart bart'
+```
+
+Run `bash pi/setup.sh` too if dependencies changed. The original `wake.py`
+remains available for one-question recording and the optional multipart
+`TURN_URL` endpoint; the boot service now runs Hudson's `wake_word.py` with
+Realtime and agents. In that mode, `TURN_URL` and the energy `VAD_THRESHOLD`
+are unused: speech detection uses Silero.

@@ -1,6 +1,6 @@
 """Wait for the wake phrase, chime, then record each sentence you say until you say "quit".
 
-    python wake_word.py                       # wake: "HEY JARVIS" or "JARVIS", stop: "QUIT"
+    python wake_word.py                       # wake: "HEY BART", stop: "QUIT"
     python wake_word.py --keyword "HEY BART" --keyword "BART"
     python wake_word.py --score 2.0 --threshold 0.1   # keywords more sensitive
 
@@ -22,16 +22,19 @@ import os
 import tarfile
 import time
 import threading
+import logging
+import math
+import subprocess
+import sys
+from collections import deque
 import urllib.request
-import wave
 from contextlib import ExitStack
-from datetime import datetime
 from pathlib import Path
 
 import numpy as np
-import sentencepiece as spm
 import sherpa_onnx
-import sounddevice as sd
+import wake as hardware
+sd = hardware.sd  # Sets the Pi's application-local ALSA config before PortAudio loads.
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -40,7 +43,11 @@ import agents
 SAMPLE_RATE = 16000
 FRAME = 1280  # 80 ms
 
-HERE = Path(__file__).parent
+HERE = Path(__file__).resolve().parent
+cfg = hardware.Config.from_env()
+os.umask(0o077)
+logging.basicConfig(level=logging.INFO, stream=sys.stdout,
+                    format="%(asctime)s %(levelname)s %(message)s")
 MODELS_DIR = HERE / "models"
 RECORDINGS_DIR = HERE / "recordings"
 
@@ -54,35 +61,31 @@ VAD_PATH = MODELS_DIR / "silero_vad.onnx"
 
 REALTIME_RATE = 24000  # the Realtime API only takes and returns 24 kHz PCM
 INSTRUCTIONS = (
-    "You are Jarvis, a reading companion. The user is reading a physical book and talking to you "
+    "You are Bart, a reading companion. The user is reading a physical book and talking to you "
     "through a small speaker. Answer directly in one to three short spoken sentences. "
     "Don't announce that you're thinking."
 )
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--keyword", action="append", help="wake phrase; repeat for several (default: HEY JARVIS, JARVIS)")
+parser.add_argument("--keyword", action="append", help="wake phrase; repeat for several (default: HEY BART)")
 parser.add_argument("--quit", action="append", help="phrase that stops listening; repeat for several (default: QUIT)")
-parser.add_argument("--score", type=float, default=1.5, help="boost for the keyword; higher = easier to trigger")
-parser.add_argument("--threshold", type=float, default=0.15, help="lower = easier to trigger")
-parser.add_argument("--silence", type=float, default=0.8, help="seconds of silence that count as you having stopped talking")
-parser.add_argument("--device", default="JV801", help="part of the mic/speaker name to use; falls back to the system default if not found")
-parser.add_argument("--model", default="gpt-realtime-2.1-mini", help="OpenAI Realtime model")
-parser.add_argument("--voice", default="marin", help="OpenAI voice for replies")
-parser.add_argument("--idle", type=float, default=30, help="seconds of silence after which it stops listening, like saying quit")
+parser.add_argument("--score", type=float, default=cfg.score, help="boost for the keyword; higher = easier to trigger")
+parser.add_argument("--threshold", type=float, default=cfg.threshold, help="lower = easier to trigger")
+parser.add_argument("--silence", type=float, default=cfg.silence, help="seconds of silence that count as you having stopped talking")
+parser.add_argument("--device", help="name substring overriding MIC_DEVICE and SPEAKER_DEVICE; no default-device fallback")
+parser.add_argument("--model", default=os.getenv("REALTIME_MODEL", "gpt-realtime-2.1-mini"), help="OpenAI Realtime model")
+parser.add_argument("--voice", default=os.getenv("REALTIME_VOICE", "marin"), help="OpenAI voice for replies")
+parser.add_argument("--idle", type=float, default=float(os.getenv("IDLE_SECONDS", "30")), help="seconds of silence after which it stops listening, like saying quit")
+parser.add_argument("--check", action="store_true", help="load models and validate USB audio, then exit")
 args = parser.parse_args()
-keywords = [k.upper() for k in args.keyword or ["HEY JARVIS", "JARVIS"]]
+keywords = [k.upper() for k in args.keyword or ["HEY BART"]]
 quit_words = [k.upper() for k in args.quit or ["QUIT"]]
 WAKE = {k.replace(" ", "_") for k in keywords}
 QUIT = {k.replace(" ", "_") for k in quit_words}
 
 
 def find_device(kind):
-    # The JV801 shows up as two devices (mic and speaker), so match by name per direction
-    for i, d in enumerate(sd.query_devices()):
-        if args.device.lower() in d["name"].lower() and d[f"max_{kind}_channels"] > 0:
-            return i
-    print(f"no {kind} device matching {args.device!r}, using the system default")
-    return None
+    return hardware.device_name(args.device or (cfg.mic if kind == "input" else cfg.speaker), kind)
 
 
 mic_device = find_device("input")
@@ -90,13 +93,17 @@ speaker_device = find_device("output")
 
 # Play replies at 24 kHz if the speaker takes it, otherwise resample to its own rate
 try:
-    sd.check_output_settings(device=speaker_device, samplerate=REALTIME_RATE, channels=1, dtype="int16")
-    play_rate = REALTIME_RATE
+    if speaker_device.startswith("bart_"):
+        # PortAudio's format probe falsely rejects ALSA plug resampling.
+        play_rate = REALTIME_RATE
+    else:
+        sd.check_output_settings(device=speaker_device, samplerate=REALTIME_RATE, channels=1, dtype="int16")
+        play_rate = REALTIME_RATE
 except sd.PortAudioError:
     play_rate = int(sd.query_devices(speaker_device, "output")["default_samplerate"])
 
 load_dotenv(HERE / ".env")
-client = OpenAI() if os.environ.get("OPENAI_API_KEY") else None
+client = OpenAI(timeout=30, max_retries=2) if os.environ.get("OPENAI_API_KEY") else None
 if not client:
     print("no OPENAI_API_KEY in pi/.env, so sentences are only recorded")
 
@@ -118,32 +125,28 @@ def ensure_models():
 
 def write_keywords_file():
     # The model matches BPE tokens, one phrase per line, e.g. "HEY BART" -> "▁HE Y ▁B AR T @HEY_BART"
-    sp = spm.SentencePieceProcessor(model_file=str(KWS_DIR / "bpe.model"))
-    lines = [f"{' '.join(sp.encode(k, out_type=str))} @{k.replace(' ', '_')}" for k in keywords + quit_words]
-    path = MODELS_DIR / "keywords.txt"
-    path.write_text("\n".join(lines) + "\n")
+    text = MODELS_DIR / "agents-keywords.txt"
+    text.write_text("\n".join(f"{k} @{k.replace(' ', '_')}" for k in keywords + quit_words) + "\n")
+    path = MODELS_DIR / "agents-keyword-tokens.txt"
+    subprocess.run([str(Path(sys.executable).parent / "sherpa-onnx-cli"), "text2token",
+                    "--tokens", str(KWS_DIR / "tokens.txt"), "--tokens-type", "bpe",
+                    "--bpe-model", str(KWS_DIR / "bpe.model"), str(text), str(path)], check=True)
     return path
 
 
 def chime(freqs):
     # Two beeps, generated so there's no sound file to ship: rising = listening, falling = stopped
-    rate = int(sd.query_devices(speaker_device, "output")["default_samplerate"])
+    hardware.prepare_speaker(cfg)
+    rate = SAMPLE_RATE if speaker_device.startswith("bart_") else int(sd.query_devices(speaker_device, "output")["default_samplerate"])
     t = np.arange(int(rate * 0.12)) / rate
     fade = np.minimum(1, np.minimum(t, t[::-1]) / 0.01)
-    beeps = [0.3 * np.sin(2 * np.pi * f * t) * fade for f in freqs]
+    beeps = [cfg.volume * np.sin(2 * np.pi * f * t) * fade for f in freqs]
     sd.play(np.concatenate([beeps[0], np.zeros(int(rate * 0.04)), beeps[1]]).astype(np.float32), rate, device=speaker_device)
     sd.wait()
 
 
 def save(samples):
-    RECORDINGS_DIR.mkdir(exist_ok=True)
-    path = RECORDINGS_DIR / f"{datetime.now():%Y%m%d-%H%M%S-%f}.wav"
-    with wave.open(str(path), "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(SAMPLE_RATE)
-        w.writeframes((np.clip(samples, -1, 1) * 32767).astype(np.int16).tobytes())
-    return path
+    return hardware.save_wav(samples[:int(cfg.maximum * SAMPLE_RATE)])
 
 
 def resample(x, src, dst):
@@ -197,13 +200,14 @@ bart_talking = threading.Event()
 
 def say(text):
     with speaker_lock:
+        hardware.prepare_speaker(cfg)
         bart_talking.set()
         try:
             pcm = client.audio.speech.create(model="gpt-4o-mini-tts", voice=args.voice, input=text, response_format="pcm").read()
             chunk = np.frombuffer(pcm, dtype=np.int16)
             if play_rate != REALTIME_RATE:
                 chunk = resample(chunk, REALTIME_RATE, play_rate).astype(np.int16)
-            print(f"  jarvis (unprompted): {text}")
+            print(f"  bart (unprompted): {text}")
             sd.play(chunk, play_rate, device=speaker_device)
             sd.wait()
         except Exception as e:
@@ -217,6 +221,7 @@ if client:
 
 
 def ask(conn, samples):
+    hardware.prepare_speaker(cfg)
     agents.deliver(conn)
     pcm = (np.clip(resample(samples, SAMPLE_RATE, REALTIME_RATE), -1, 1) * 32767).astype(np.int16)
     conn.input_audio_buffer.append(audio=base64.b64encode(pcm.tobytes()).decode())
@@ -233,7 +238,7 @@ def ask(conn, samples):
             elif event.type == "conversation.item.input_audio_transcription.completed":
                 print(f"  you: {event.transcript.strip()}")
             elif event.type == "response.output_audio_transcript.done":
-                print(f"  jarvis: {event.transcript.strip()}")
+                print(f"  bart: {event.transcript.strip()}")
             elif event.type == "error":
                 print(f"  openai error: {event.error.message}")
                 break
@@ -261,85 +266,134 @@ stream = spotter.create_stream()
 vad_config = sherpa_onnx.VadModelConfig()
 vad_config.silero_vad.model = str(VAD_PATH)
 vad_config.silero_vad.min_silence_duration = args.silence
-vad_config.silero_vad.max_speech_duration = 30
+vad_config.silero_vad.max_speech_duration = cfg.maximum
 vad_config.sample_rate = SAMPLE_RATE
 vad = sherpa_onnx.VoiceActivityDetector(vad_config, buffer_size_in_seconds=60)
 VAD_WINDOW = vad_config.silero_vad.window_size
 
-with sd.InputStream(device=mic_device, samplerate=SAMPLE_RATE, channels=1, dtype="float32", blocksize=FRAME) as mic:
-    print(f"mic: {sd.query_devices(mic_device, 'input')['name']}, "
-          f"speaker: {sd.query_devices(speaker_device, 'output')['name']}")
-    print(f"waiting for {' / '.join(keywords)}...")
-    listening = speaking = False
-    last_heard = time.monotonic()  # last time anyone spoke, for the --idle timeout
-    pending = np.zeros(0, dtype=np.float32)
+if args.check:
+    with sd.InputStream(device=mic_device, samplerate=SAMPLE_RATE, channels=1, dtype="float32") as mic:
+        mic.read(FRAME)
+    with sd.OutputStream(device=speaker_device, samplerate=play_rate, channels=1, dtype="int16"):
+        pass
+    print(f"Ready: sherpa-onnx score={args.score} threshold={args.threshold}; {mic_device}; Silero VAD; Realtime SDK")
+    raise SystemExit(0)
+
+
+def listen():
+    stream = spotter.create_stream()
+    vad.reset()
+    capture = hardware.Microphone()
+    history = deque(maxlen=math.ceil(cfg.pre_roll * SAMPLE_RATE / FRAME))
     session = conn = None
-    while True:
-        frame, _ = mic.read(FRAME)
-        frame = np.squeeze(frame)
-        if bart_talking.is_set():
-            last_heard = time.monotonic()
-            continue  # Bart is speaking unprompted; don't let the mic hear it
-
-        # The spotter always runs: it hears the wake words while waiting and the quit words while listening
-        heard = None
-        stream.accept_waveform(SAMPLE_RATE, frame)
-        while spotter.is_ready(stream):
-            spotter.decode_stream(stream)
-            if keyword := spotter.get_result(stream):
-                spotter.reset_stream(stream)
-                heard = keyword
-
-        if not listening:
-            if heard in WAKE:
-                print(f"heard {heard}, listening until you say {' / '.join(quit_words)}...")
-                chime((660, 990))
-                mic.read(mic.read_available)  # drop audio captured during the chime
-                vad.reset()
-                pending = np.zeros(0, dtype=np.float32)
-                listening, speaking = True, False
-                last_heard = time.monotonic()
-                if client:
-                    session, conn = open_conversation()  # mic keeps buffering meanwhile, so nothing is lost
-            continue
-
-        # Saying the quit word, or a stretch of silence, ends the conversation; the wake word starts a new one
-        timed_out = listening and not speaking and time.monotonic() - last_heard > args.idle
-        if heard in QUIT or timed_out:
-            # Stop before the VAD finishes this utterance, so "quit" itself isn't saved
-            print(f"heard {heard}, stopped listening" if heard in QUIT else f"{args.idle:g} s of silence, stopped listening")
-            if session:
-                session.close()
-                session = conn = None
-            agents.stop()  # turn the camera off if an agent left it on
-            chime((990, 660))
-            mic.read(mic.read_available)
-            listening = False
+    try:
+        with sd.InputStream(device=mic_device, samplerate=SAMPLE_RATE, channels=1, dtype="float32",
+                                blocksize=FRAME, callback=capture.callback):
+            print(f"mic: {sd.query_devices(mic_device, 'input')['name']}, "
+                  f"speaker: {sd.query_devices(speaker_device, 'output')['name']}")
             print(f"waiting for {' / '.join(keywords)}...")
-            continue
+            listening = speaking = False
+            last_heard = time.monotonic()  # last time anyone spoke, for the --idle timeout
+            pending = np.zeros(0, dtype=np.float32)
+            while True:
+                frame = capture.read()
+                history.append(frame)
+                if bart_talking.is_set():
+                    last_heard = time.monotonic()
+                    continue  # Bart is speaking unprompted; don't let the mic hear it
 
-        # Silero wants fixed-size windows
-        pending = np.concatenate([pending, frame])
-        while len(pending) >= VAD_WINDOW:
-            vad.accept_waveform(pending[:VAD_WINDOW])
-            pending = pending[VAD_WINDOW:]
-        if vad.is_speech_detected() and not speaking:
-            speaking = True
-            last_heard = time.monotonic()
-            print("  you're talking...")
-        if not vad.empty():
-            samples = np.array(vad.front.samples, dtype=np.float32)
-            vad.pop()
-            path = save(samples)
-            print(f"  you stopped talking: {len(samples) / SAMPLE_RATE:.1f} s, "
-                  f"{path.stat().st_size / 1024:.1f} KB -> {path.relative_to(HERE)}")
-            speaking = False
-            last_heard = time.monotonic()
-            if conn:
-                ask(conn, samples)
-                last_heard = time.monotonic()  # the silence clock starts after Bart's reply
-                # Throw away what the mic heard while we waited and while the reply played
-                mic.read(mic.read_available)
-                vad.reset()
-                pending = np.zeros(0, dtype=np.float32)
-                spotter.reset_stream(stream)
+                # The spotter always runs: it hears the wake words while waiting and the quit words while listening
+                heard = None
+                stream.accept_waveform(SAMPLE_RATE, frame)
+                while spotter.is_ready(stream):
+                    spotter.decode_stream(stream)
+                    if keyword := spotter.get_result(stream):
+                        spotter.reset_stream(stream)
+                        heard = keyword
+
+                if not listening:
+                    if heard in WAKE:
+                        print(f"heard {heard}, listening until you say {' / '.join(quit_words)}...")
+                        chime((660, 990))
+                        vad.reset()
+                        pending = np.concatenate(history) if history else np.zeros(0, dtype=np.float32)
+                        listening, speaking = True, False
+                        last_heard = time.monotonic()
+                    continue
+
+                # Saying the quit word, or a stretch of silence, ends the conversation; the wake word starts a new one
+                timed_out = listening and not speaking and time.monotonic() - last_heard > args.idle
+                if heard in QUIT or timed_out:
+                    # Stop before the VAD finishes this utterance, so "quit" itself isn't saved
+                    print(f"heard {heard}, stopped listening" if heard in QUIT else f"{args.idle:g} s of silence, stopped listening")
+                    if session:
+                        session.close()
+                        session = conn = None
+                    agents.stop()  # turn the camera off if an agent left it on
+                    chime((990, 660))
+                    capture.clear()
+                    history.clear()
+                    listening = False
+                    print(f"waiting for {' / '.join(keywords)}...")
+                    continue
+
+                # Silero wants fixed-size windows
+                pending = np.concatenate([pending, frame])
+                while len(pending) >= VAD_WINDOW:
+                    vad.accept_waveform(pending[:VAD_WINDOW])
+                    pending = pending[VAD_WINDOW:]
+                if vad.is_speech_detected() and not speaking:
+                    speaking = True
+                    last_heard = time.monotonic()
+                    print("  you're talking...")
+                if not vad.empty():
+                    samples = np.array(vad.front.samples, dtype=np.float32)[:int(cfg.maximum * SAMPLE_RATE)]
+                    vad.pop()
+                    path = save(samples)
+                    print(f"  you stopped talking: {len(samples) / SAMPLE_RATE:.1f} s, "
+                          f"{path.stat().st_size / 1024:.1f} KB -> {path.relative_to(HERE)}")
+                    speaking = False
+                    last_heard = time.monotonic()
+                    if client:
+                        # Connect only after saving the question, so a slow network cannot
+                        # overrun the mic queue and cut off its start.
+                        if conn is None:
+                            for attempt in range(3):
+                                try:
+                                    session, conn = open_conversation()
+                                    break
+                                except Exception as exc:
+                                    print(f"  Realtime connection failed ({type(exc).__name__}), attempt {attempt + 1}/3")
+                                    if attempt < 2:
+                                        time.sleep(2 ** attempt)
+                        if conn:
+                            try:
+                                ask(conn, samples)
+                            except Exception as exc:
+                                print(f"  Realtime turn failed ({type(exc).__name__}); WAV kept")
+                                if session:
+                                    session.close()
+                                session = conn = None
+                        last_heard = time.monotonic()
+                        capture.clear()
+                        history.clear()
+                        vad.reset()
+                        pending = np.zeros(0, dtype=np.float32)
+                        spotter.reset_stream(stream)
+
+    finally:
+        if session:
+            session.close()
+        agents.stop()
+
+
+while True:
+    try:
+        listen()
+    except KeyboardInterrupt:
+        agents.stop()
+        break
+    except Exception as exc:
+        print(f"listener failed ({type(exc).__name__}); retrying in 3s")
+        agents.stop()
+        time.sleep(3)
