@@ -1,0 +1,15 @@
+[Unit]
+Description=Bart wake word and question recorder
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=%h/founder-hackathon/pi
+ExecStart=%h/founder-hackathon/pi/venv/bin/python -u %h/founder-hackathon/pi/wake.py
+Environment=PYTHONUNBUFFERED=1
+Restart=always
+RestartSec=3
+UMask=0077
+
+[Install]
+WantedBy=default.target

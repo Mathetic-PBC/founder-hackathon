@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+venv/
+.venv/
+recordings/
+models/
+*.onnx
+*.onnx.data
+*.tflite
+*.model
+*.tar.bz2
+__pycache__/
+*.py[cod]
+.firecrawl/
+.DS_Store
