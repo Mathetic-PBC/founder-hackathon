@@ -4,18 +4,24 @@
     python wake_word.py --keyword "HEY BART" --keyword "BART"
     python wake_word.py --score 2.0 --threshold 0.1   # keywords more sensitive
 
-Each sentence is saved to recordings/ and the terminal prints its length and
-file size. Saying the quit word plays a falling chime and goes back to waiting
-for the wake phrase.
+Each sentence is saved to recordings/, the terminal prints its length and file
+size, and it's sent to the OpenAI Realtime API; the spoken reply streams back
+through the speaker. The whole session is one conversation, so follow-ups work.
+Saying the quit word plays a falling chime, ends the conversation and goes back
+to waiting for the wake phrase. Needs OPENAI_API_KEY in pi/.env; without it,
+sentences are only recorded.
 
 Uses sherpa-onnx for both steps: keyword spotting for the wake and quit words
 (plain text, no training) and Silero VAD to tell when you stop talking.
 Same script runs on a Mac and on the Pi.
 """
 import argparse
+import base64
+import os
 import tarfile
 import urllib.request
 import wave
+from contextlib import ExitStack
 from datetime import datetime
 from pathlib import Path
 
@@ -23,6 +29,8 @@ import numpy as np
 import sentencepiece as spm
 import sherpa_onnx
 import sounddevice as sd
+from dotenv import load_dotenv
+from openai import OpenAI
 
 SAMPLE_RATE = 16000
 FRAME = 1280  # 80 ms
@@ -39,6 +47,13 @@ CHUNK = "epoch-12-avg-2-chunk-16-left-64.int8"
 VAD_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx"
 VAD_PATH = MODELS_DIR / "silero_vad.onnx"
 
+REALTIME_RATE = 24000  # the Realtime API only takes and returns 24 kHz PCM
+INSTRUCTIONS = (
+    "You are Jarvis, a reading companion. The user is reading a physical book and talking to you "
+    "through a small speaker. Answer directly in one to three short spoken sentences. "
+    "Don't announce that you're thinking."
+)
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--keyword", action="append", help="wake phrase; repeat for several (default: HEY JARVIS, JARVIS)")
 parser.add_argument("--quit", action="append", help="phrase that stops listening; repeat for several (default: QUIT)")
@@ -46,6 +61,8 @@ parser.add_argument("--score", type=float, default=1.5, help="boost for the keyw
 parser.add_argument("--threshold", type=float, default=0.15, help="lower = easier to trigger")
 parser.add_argument("--silence", type=float, default=0.8, help="seconds of silence that count as you having stopped talking")
 parser.add_argument("--device", default="JV801", help="part of the mic/speaker name to use; falls back to the system default if not found")
+parser.add_argument("--model", default="gpt-realtime-2.1-mini", help="OpenAI Realtime model")
+parser.add_argument("--voice", default="marin", help="OpenAI voice for replies")
 args = parser.parse_args()
 keywords = [k.upper() for k in args.keyword or ["HEY JARVIS", "JARVIS"]]
 quit_words = [k.upper() for k in args.quit or ["QUIT"]]
@@ -64,6 +81,18 @@ def find_device(kind):
 
 mic_device = find_device("input")
 speaker_device = find_device("output")
+
+# Play replies at 24 kHz if the speaker takes it, otherwise resample to its own rate
+try:
+    sd.check_output_settings(device=speaker_device, samplerate=REALTIME_RATE, channels=1, dtype="int16")
+    play_rate = REALTIME_RATE
+except sd.PortAudioError:
+    play_rate = int(sd.query_devices(speaker_device, "output")["default_samplerate"])
+
+load_dotenv(HERE / ".env")
+client = OpenAI() if os.environ.get("OPENAI_API_KEY") else None
+if not client:
+    print("no OPENAI_API_KEY in pi/.env, so sentences are only recorded")
 
 
 def ensure_models():
@@ -111,6 +140,56 @@ def save(samples):
     return path
 
 
+def resample(x, src, dst):
+    # Linear interpolation is plenty for speech
+    n = int(len(x) * dst / src)
+    return np.interp(np.linspace(0, len(x) - 1, n), np.arange(len(x)), x)
+
+
+def open_conversation():
+    session = ExitStack()
+    conn = session.enter_context(client.realtime.connect(model=args.model))
+    # Our VAD decides when you've stopped talking, so the server's turn detection is off
+    conn.session.update(session={
+        "type": "realtime",
+        "instructions": INSTRUCTIONS,
+        "output_modalities": ["audio"],
+        "audio": {
+            "input": {
+                "format": {"type": "audio/pcm", "rate": REALTIME_RATE},
+                "turn_detection": None,
+                "transcription": {"model": "gpt-4o-mini-transcribe"},
+            },
+            "output": {"format": {"type": "audio/pcm", "rate": REALTIME_RATE}, "voice": args.voice},
+        },
+    })
+    return session, conn
+
+
+def ask(conn, samples):
+    pcm = (np.clip(resample(samples, SAMPLE_RATE, REALTIME_RATE), -1, 1) * 32767).astype(np.int16)
+    conn.input_audio_buffer.append(audio=base64.b64encode(pcm.tobytes()).decode())
+    conn.input_audio_buffer.commit()
+    conn.response.create()
+    # Play each chunk as it arrives instead of waiting for the whole reply
+    with sd.OutputStream(device=speaker_device, samplerate=play_rate, channels=1, dtype="int16") as out:
+        for event in conn:
+            if event.type == "response.output_audio.delta":
+                chunk = np.frombuffer(base64.b64decode(event.delta), dtype=np.int16)
+                if play_rate != REALTIME_RATE:
+                    chunk = resample(chunk, REALTIME_RATE, play_rate).astype(np.int16)
+                out.write(chunk.reshape(-1, 1))
+            elif event.type == "conversation.item.input_audio_transcription.completed":
+                print(f"  you: {event.transcript.strip()}")
+            elif event.type == "response.output_audio_transcript.done":
+                print(f"  jarvis: {event.transcript.strip()}")
+            elif event.type == "error":
+                print(f"  openai error: {event.error.message}")
+                break
+            elif event.type == "response.done":
+                break
+
+
 ensure_models()
 spotter = sherpa_onnx.KeywordSpotter(
     tokens=str(KWS_DIR / "tokens.txt"),
@@ -138,6 +217,7 @@ with sd.InputStream(device=mic_device, samplerate=SAMPLE_RATE, channels=1, dtype
     print(f"waiting for {' / '.join(keywords)}...")
     listening = speaking = False
     pending = np.zeros(0, dtype=np.float32)
+    session = conn = None
     while True:
         frame, _ = mic.read(FRAME)
         frame = np.squeeze(frame)
@@ -159,11 +239,16 @@ with sd.InputStream(device=mic_device, samplerate=SAMPLE_RATE, channels=1, dtype
                 vad.reset()
                 pending = np.zeros(0, dtype=np.float32)
                 listening, speaking = True, False
+                if client:
+                    session, conn = open_conversation()  # mic keeps buffering meanwhile, so nothing is lost
             continue
 
         if heard in QUIT:
             # Stop before the VAD finishes this utterance, so "quit" itself isn't saved
             print(f"heard {heard}, stopped listening")
+            if session:
+                session.close()
+                session = conn = None
             chime((990, 660))
             mic.read(mic.read_available)
             listening = False
@@ -185,3 +270,10 @@ with sd.InputStream(device=mic_device, samplerate=SAMPLE_RATE, channels=1, dtype
             print(f"  you stopped talking: {len(samples) / SAMPLE_RATE:.1f} s, "
                   f"{path.stat().st_size / 1024:.1f} KB -> {path.relative_to(HERE)}")
             speaking = False
+            if conn:
+                ask(conn, samples)
+                # Throw away what the mic heard while we waited and while the reply played
+                mic.read(mic.read_available)
+                vad.reset()
+                pending = np.zeros(0, dtype=np.float32)
+                spotter.reset_stream(stream)
