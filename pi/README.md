@@ -1,6 +1,16 @@
 # pi
 
-Wake-word detection with [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) keyword spotting. The wake phrases are plain text ("HEY BART" or just "BART"), so there's no model to train, and no account or key.
+Say the wake phrase, hear a chime, then ask your question. When you stop talking, the terminal prints how long you spoke and the size of the saved audio file, then goes back to waiting for the wake phrase.
+
+```
+waiting for HEY JARVIS / JARVIS on MacBook Pro Microphone...
+heard HEY_JARVIS, listening...
+  you're talking...
+  you stopped talking: 2.6 s, 81.9 KB -> recordings/20261030-180018-953639.wav
+waiting for HEY JARVIS / JARVIS...
+```
+
+Everything runs on the device with [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx): keyword spotting for the wake phrase (plain text, so no model to train) and Silero VAD to tell when you've stopped talking. No account or key.
 
 ## Setup (Mac or Pi)
 
@@ -10,22 +20,20 @@ sudo apt install -y libportaudio2
 
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python wake_word.py   # say "hey bart" or "bart"
+python wake_word.py   # say "hey jarvis", wait for the chime, then talk
 ```
 
-The first run downloads the ~3 MB English keyword model into `models/`. On a Mac, it also asks for microphone access for your terminal.
+The first run downloads the models (~3 MB keyword model, ~0.6 MB VAD) into `models/`. On a Mac, it also asks for microphone access for your terminal. Recordings are saved as 16 kHz mono WAV in `recordings/`; both folders are git-ignored.
 
-## Tuning
+## Options
 
-Two knobs, both on the command line:
-
-- `--score` (default 1.5): boost for the keyword. Raise it if it misses you.
-- `--threshold` (default 0.15): lower it if it misses you, raise it if it fires on other speech.
+- `--keyword` replaces the default wake phrases and can be repeated: `--keyword "HEY BART" --keyword "BART"`.
+- `--threshold` (default 0.15): lower it if the wake phrase misses you, raise it if it fires on other speech.
+- `--score` (default 1.5): boost for the wake phrase. Raise it if it misses you.
+- `--silence` (default 0.8): seconds of quiet that count as you having stopped talking. Raise it if it cuts you off mid-sentence.
 
 Tune these with real people talking at the demo table, not in a quiet room.
 
-`--keyword` replaces the defaults and can be repeated: `--keyword "HEY JARVIS" --keyword "JARVIS"`.
-
-"BART" on its own is less reliable than "HEY BART": a single short word gives the model less to go on. In tests with synthesized voices, "HEY BART" was caught every time and "BART" about half the time, and raising the sensitivity only added false triggers. "HEY BART" is the one to use in the demo.
+A single word ("JARVIS", "BART") is less reliable than the two-word phrase: it gives the model less to go on. In tests with synthesized voices, "HEY BART" was caught every time and "BART" about half the time, and raising the sensitivity only added false triggers. Use the two-word phrase in the demo.
 
 If opening the mic at 16 kHz fails on the Pi, run `python -m sounddevice` to check the speakerphone is listed and what it supports.
