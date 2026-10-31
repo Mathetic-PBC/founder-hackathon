@@ -40,6 +40,12 @@ an unrelated device or a fixed card index. System audio settings are preserved.
 For a different USB card, update the `slave.pcm` card name and hint in this file.
 USB startup/disconnect errors retry.
 
+`ALSA_CARD=JV801` and `HARDWARE_VOLUME=75` set the hardware playback volume before
+each chime/reply: this Pi's audio manager otherwise restores it to 0% at boot.
+`CHIME_VOLUME` adjusts the beep amplitude separately. The venue deployment uses
+`CHIME_VOLUME=0.35` and `VAD_THRESHOLD=0.065` because of room noise; defaults in
+`.env.example` are quieter and more sensitive for a quiet room.
+
 Tune `KEYWORDS_SCORE=1.5` and `KEYWORDS_THRESHOLD=0.15` in `.env`; a higher score
 or lower threshold increases sensitivity. `VAD_THRESHOLD=0.015` is normalized
 RMS: increase it if room noise keeps recordings open, decrease it if quiet
@@ -67,11 +73,20 @@ cp ~/founder-hackathon/pi/bart.service ~/.config/systemd/user/bart.service
 systemctl --user daemon-reload
 systemctl --user enable --now bart
 sudo loginctl enable-linger dbarron
+sudo mkdir -p /etc/systemd/journald.conf.d
+sudo cp ~/founder-hackathon/pi/bart-journald.conf /etc/systemd/journald.conf.d/60-bart.conf
+sudo systemctl restart systemd-journald
+sudo journalctl --flush
 journalctl --user -u bart -f
 ```
 
 Linger starts the user service at boot without an interactive login. The unit
 uses the Pi user's audio permissions and restarts failures after three seconds.
+The journald drop-in enables persistent logs (bounded to 64 MB / seven days),
+needed for `journalctl --user` on this Pi OS image. For a test with no interactive
+login, disable automatic desktop/console login with
+`sudo raspi-config nonint do_boot_behaviour B3`, then `sudo reboot`. The desktop
+login screen remains available; Wi-Fi configuration is unchanged.
 
 ## Update from the Mac
 

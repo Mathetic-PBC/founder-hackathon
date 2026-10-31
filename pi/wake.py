@@ -40,6 +40,8 @@ LOG = logging.getLogger("bart")
 class Config:
     mic: str = "JV801"
     speaker: str = "JV801"
+    alsa_card: str = "JV801"
+    hardware_volume: int = 75
     score: float = 1.5
     threshold: float = 0.15
     vad: float = 0.015
@@ -59,6 +61,8 @@ class Config:
         cfg = cls(
             mic=os.getenv("MIC_DEVICE", "JV801"),
             speaker=os.getenv("SPEAKER_DEVICE", "JV801"),
+            alsa_card=os.getenv("ALSA_CARD", "JV801"),
+            hardware_volume=int(os.getenv("HARDWARE_VOLUME", "75")),
             score=float(os.getenv("KEYWORDS_SCORE", "1.5")),
             threshold=float(os.getenv("KEYWORDS_THRESHOLD", "0.15")),
             vad=float(os.getenv("VAD_THRESHOLD", "0.015")),
@@ -74,6 +78,8 @@ class Config:
         )
         if not cfg.mic.strip() or not cfg.speaker.strip():
             raise ValueError("MIC_DEVICE and SPEAKER_DEVICE must name the USB device")
+        if not cfg.alsa_card.strip() or cfg.alsa_card.isdigit() or not 0 <= cfg.hardware_volume <= 100:
+            raise ValueError("ALSA_CARD must be a card name; HARDWARE_VOLUME must be 0..100")
         for value in (cfg.score, cfg.threshold, cfg.vad, cfg.silence, cfg.maximum,
                       cfg.start_timeout, cfg.pre_roll, cfg.volume,
                       cfg.connect_timeout, cfg.read_timeout):
@@ -183,6 +189,20 @@ class Utterance:
         return np.concatenate(self.parts)
 
 
+def prepare_speaker(cfg):
+    # WirePlumber restores this card's hardware mixer to 0% during boot. Setting
+    # it just before playback also handles USB reconnects and startup races.
+    if sys.platform.startswith("linux"):
+        try:
+            subprocess.run(
+                ["amixer", "-q", "-c", cfg.alsa_card, "sset", "PCM",
+                 f"{cfg.hardware_volume}%", "unmute"],
+                capture_output=True, check=True, timeout=3,
+            )
+        except Exception as exc:
+            LOG.warning("Could not set USB playback volume (%s)", type(exc).__name__)
+
+
 def play_pcm(samples, speaker, rate=RATE):
     with sd.OutputStream(device=speaker, samplerate=rate, channels=1, dtype="float32") as output:
         output.write(np.asarray(samples, dtype=np.float32).reshape(-1, 1))
@@ -252,6 +272,7 @@ def send_turn(cfg, path, session_id, speaker, http):
                             raise ValueError("Audio reply exceeds 10 MB")
                         if time.monotonic() > deadline:
                             raise requests.Timeout("Audio reply deadline exceeded")
+            prepare_speaker(cfg)
             play_mp3(bytes(reply), speaker)
             LOG.info("Played turn reply")
             return
@@ -310,6 +331,7 @@ def listen(cfg, spotter, session_id, http):
             spotter.reset_stream(stream)
             utterance = Utterance(cfg, history)
             try:
+                prepare_speaker(cfg)
                 chime(speaker, cfg.volume)
                 LOG.info("Chime played")
             except Exception as exc:

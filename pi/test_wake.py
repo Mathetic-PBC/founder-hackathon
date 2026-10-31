@@ -54,6 +54,9 @@ class RecordingTests(unittest.TestCase):
 
 class TurnTests(unittest.TestCase):
     def setUp(self):
+        mixer = patch.object(wake, "prepare_speaker")
+        mixer.start()
+        self.addCleanup(mixer.stop)
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.path = wake.save_wav(np.zeros(1600), Path(self.directory.name))
