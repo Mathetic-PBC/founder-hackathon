@@ -1,14 +1,15 @@
-"""Wait for the wake phrase, chime, then record what you say until you stop talking.
+"""Wait for the wake phrase, chime, then record each sentence you say until you say "quit".
 
-    python wake_word.py                       # "HEY JARVIS" or "JARVIS"
+    python wake_word.py                       # wake: "HEY JARVIS" or "JARVIS", stop: "QUIT"
     python wake_word.py --keyword "HEY BART" --keyword "BART"
-    python wake_word.py --score 2.0 --threshold 0.1   # wake word more sensitive
+    python wake_word.py --score 2.0 --threshold 0.1   # keywords more sensitive
 
-Each utterance is saved to recordings/ and the terminal prints its length and
-file size, then it goes back to waiting for the wake phrase.
+Each sentence is saved to recordings/ and the terminal prints its length and
+file size. Saying the quit word plays a falling chime and goes back to waiting
+for the wake phrase.
 
-Uses sherpa-onnx for both steps: keyword spotting for the wake phrase (plain
-text, no training) and Silero VAD to tell when you stop talking.
+Uses sherpa-onnx for both steps: keyword spotting for the wake and quit words
+(plain text, no training) and Silero VAD to tell when you stop talking.
 Same script runs on a Mac and on the Pi.
 """
 import argparse
@@ -40,12 +41,16 @@ VAD_PATH = MODELS_DIR / "silero_vad.onnx"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--keyword", action="append", help="wake phrase; repeat for several (default: HEY JARVIS, JARVIS)")
+parser.add_argument("--quit", action="append", help="phrase that stops listening; repeat for several (default: QUIT)")
 parser.add_argument("--score", type=float, default=1.5, help="boost for the keyword; higher = easier to trigger")
 parser.add_argument("--threshold", type=float, default=0.15, help="lower = easier to trigger")
 parser.add_argument("--silence", type=float, default=0.8, help="seconds of silence that count as you having stopped talking")
 parser.add_argument("--device", default="JV801", help="part of the mic/speaker name to use; falls back to the system default if not found")
 args = parser.parse_args()
 keywords = [k.upper() for k in args.keyword or ["HEY JARVIS", "JARVIS"]]
+quit_words = [k.upper() for k in args.quit or ["QUIT"]]
+WAKE = {k.replace(" ", "_") for k in keywords}
+QUIT = {k.replace(" ", "_") for k in quit_words}
 
 
 def find_device(kind):
@@ -79,18 +84,18 @@ def ensure_models():
 def write_keywords_file():
     # The model matches BPE tokens, one phrase per line, e.g. "HEY BART" -> "▁HE Y ▁B AR T @HEY_BART"
     sp = spm.SentencePieceProcessor(model_file=str(KWS_DIR / "bpe.model"))
-    lines = [f"{' '.join(sp.encode(k, out_type=str))} @{k.replace(' ', '_')}" for k in keywords]
+    lines = [f"{' '.join(sp.encode(k, out_type=str))} @{k.replace(' ', '_')}" for k in keywords + quit_words]
     path = MODELS_DIR / "keywords.txt"
     path.write_text("\n".join(lines) + "\n")
     return path
 
 
-def chime():
-    # Two rising beeps, generated so there's no sound file to ship
+def chime(freqs):
+    # Two beeps, generated so there's no sound file to ship: rising = listening, falling = stopped
     rate = int(sd.query_devices(speaker_device, "output")["default_samplerate"])
     t = np.arange(int(rate * 0.12)) / rate
     fade = np.minimum(1, np.minimum(t, t[::-1]) / 0.01)
-    beeps = [0.3 * np.sin(2 * np.pi * f * t) * fade for f in (660, 990)]
+    beeps = [0.3 * np.sin(2 * np.pi * f * t) * fade for f in freqs]
     sd.play(np.concatenate([beeps[0], np.zeros(int(rate * 0.04)), beeps[1]]).astype(np.float32), rate, device=speaker_device)
     sd.wait()
 
@@ -137,19 +142,32 @@ with sd.InputStream(device=mic_device, samplerate=SAMPLE_RATE, channels=1, dtype
         frame, _ = mic.read(FRAME)
         frame = np.squeeze(frame)
 
+        # The spotter always runs: it hears the wake words while waiting and the quit words while listening
+        heard = None
+        stream.accept_waveform(SAMPLE_RATE, frame)
+        while spotter.is_ready(stream):
+            spotter.decode_stream(stream)
+            if keyword := spotter.get_result(stream):
+                spotter.reset_stream(stream)
+                heard = keyword
+
         if not listening:
-            stream.accept_waveform(SAMPLE_RATE, frame)
-            while spotter.is_ready(stream):
-                spotter.decode_stream(stream)
-                if keyword := spotter.get_result(stream):
-                    spotter.reset_stream(stream)
-                    print(f"heard {keyword}, listening...")
-                    chime()
-                    mic.read(mic.read_available)  # drop audio captured during the chime
-                    vad.reset()
-                    pending = np.zeros(0, dtype=np.float32)
-                    listening, speaking = True, False
-                    break
+            if heard in WAKE:
+                print(f"heard {heard}, listening until you say {' / '.join(quit_words)}...")
+                chime((660, 990))
+                mic.read(mic.read_available)  # drop audio captured during the chime
+                vad.reset()
+                pending = np.zeros(0, dtype=np.float32)
+                listening, speaking = True, False
+            continue
+
+        if heard in QUIT:
+            # Stop before the VAD finishes this utterance, so "quit" itself isn't saved
+            print(f"heard {heard}, stopped listening")
+            chime((990, 660))
+            mic.read(mic.read_available)
+            listening = False
+            print(f"waiting for {' / '.join(keywords)}...")
             continue
 
         # Silero wants fixed-size windows
@@ -166,5 +184,4 @@ with sd.InputStream(device=mic_device, samplerate=SAMPLE_RATE, channels=1, dtype
             path = save(samples)
             print(f"  you stopped talking: {len(samples) / SAMPLE_RATE:.1f} s, "
                   f"{path.stat().st_size / 1024:.1f} KB -> {path.relative_to(HERE)}")
-            listening = False
-            print(f"waiting for {' / '.join(keywords)}...")
+            speaking = False
